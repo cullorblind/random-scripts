@@ -19,7 +19,7 @@ then #Inform players that backup started
    /usr/bin/screen -S ${SCREENSESSION} -X stuff "save-on"`echo -ne '\015'`
 #   /usr/bin/screen -S ${SCREENSESSION} -X stuff "say ###Cullor Rsync Backup - Complete###"`echo -ne '\015'`
    exit 0
-else
+else #server's not running, so no need to make another backup.
    exit 1
 fi
 
