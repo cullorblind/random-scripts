@@ -1,5 +1,10 @@
 #!/bin/bash
 # Minecraft AutoBackup
+# Originally from https://github.com/ShadwDrgn/mcManage, but it's been butchered down enough that
+# it barely resembles the original.
+
+# Run from cron:
+#   * */15 * * * /home/minecraft/mcManage-rsync.sh >/home/minecraft/mcManage-rsync.log 2>&1
 
 #Minecraft Home Directory
 HOME='/home/minecraft/McMyAdmin/'
