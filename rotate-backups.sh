@@ -13,7 +13,7 @@ then
 	COUNT=$(echo {11..01})
 elif [[ $DURATION == daily ]]
 then
-	LASTNUM=15
+	LASTNUM=08
 	COUNT=$(echo {07..01})
 elif [[ $DURATION == s3 ]]
 then
