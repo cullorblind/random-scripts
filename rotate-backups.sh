@@ -16,24 +16,24 @@
 BASEDIR=/mcbackups/mc1
 DURATION=$1
 
-if [[ $DURATION == 15min ]]
+if [[ ${DURATION} == 15min ]]
 then
 	LASTNUM=08
 	COUNT=$(echo {07..01})
-elif [[ $DURATION == 2hour ]]
+elif [[ ${DURATION} == 2hour ]]
 then
 	LASTNUM=12
 	COUNT=$(echo {11..01})
-elif [[ $DURATION == daily ]]
+elif [[ ${DURATION} == daily ]]
 then
 	LASTNUM=08
 	COUNT=$(echo {07..01})
-elif [[ $DURATION == s3 ]]
+elif [[ ${DURATION} == s3 ]]
 then
 	/bin/s3cmd sync --delete-removed /mcbackups/mc1/0-latest/MentalMetal/ s3://MentalMetalbackup
 	exit 0
 else
-	echo "$DURATION not set properly"
+	echo "${DURATION} not set properly"
 	exit 1
 fi
 
