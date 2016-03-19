@@ -17,21 +17,22 @@
 ###########################################################
 
 use strict;
+use warnings FATAL => 'all';
 use File::Find;
 use Getopt::Long;
 use Cwd;
 use File::Glob qw( bsd_glob );
 
 # define variables
-my(@stat, $stat, @file, $file, $row, @dir, $dir, $SIZE, $CNT, $LASTDIR, $DATETIME, $OWNER, $UID, $MTIME, $FOLDSTAT, @FOLDSTAT);
-my(@filelist, @dirlist, @topfilesize, @topdirsize, @topdircount);
-my(%dirhash, $vars, $out, $cwd, @cwd_files);
+my (@stat, $stat, @file, $file, $row, @dir, $dir, $SIZE, $CNT, $LASTDIR, $DATETIME, $OWNER, $UID, $MTIME, $FOLDSTAT, @FOLDSTAT);
+my (@filelist, @dirlist, @topfilesize, @topdirsize, @topdircount);
+my (%dirhash, $vars, $out, $cwd, @cwd_files);
 
 $| = 1;
 
 #########################
 # define option variables
-my($opt_top, $opt_foldercnt, $opt_dir);
+my ($opt_top, $opt_foldercnt, $opt_dir);
 
 #########################
 # Default Values for options
@@ -41,22 +42,22 @@ $opt_foldercnt = '1000';
 #########################
 # slurp cmdline opts into corresponding vars;
 GetOptions (
-	'top=s'=>\$opt_top,
-	'foldercnt=s'=>\$opt_foldercnt,
-	'dir=s'=>\$opt_dir,
+    'top=s'       => \$opt_top,
+    'foldercnt=s' => \$opt_foldercnt,
+    'dir=s'       => \$opt_dir,
 );
 
 &usage () unless $opt_dir;
 
 # strip the trailing slash
 if ("$opt_dir" ne "/") {
-	$opt_dir =~ s/\/$//;
+    $opt_dir =~ s/\/$//;
 }
 
 
 #########################
 # Begin Error Handling
-$opt_dir = &errorHandle($opt_dir);
+$opt_dir = &errorHandle( $opt_dir );
 # End Error Handling
 #########################
 
@@ -71,7 +72,7 @@ $SIZE = 0;
 # Humm  How do we use this thing?
 sub usage
 {
-print <<EOF;
+    print <<EOF;
 
 You must specify a folder
 usage: $0 -top <display count parameter> -foldercnt <folder count threshold> -dir <foldername>
@@ -85,13 +86,13 @@ eg:    $0 -dir .hidden (searches directory .hidden in current working directory)
   -foldercnt # - shows any folders containing # or more files (default:1000)
 
 EOF
-&printdesc;
-exit;
+    &printdesc;
+    exit;
 }
 
 sub printdesc
 {
-print <<EOF;
+    print <<EOF;
 
 +----------------------------------------------------------------------------------
 | NOTE: Don't just look at Top Files by Size. These sections are here for a reason.
@@ -111,111 +112,111 @@ EOF
 # move along, there's nothing to see here
 &printdesc;
 print "Finding the top $opt_top files/folders and any folders containing $opt_foldercnt or more files on $opt_dir.\n";
-find(\&Args, "$opt_dir");
+find( \&Args, "$opt_dir" );
 
 sub Args
 {
 
-	@file = lstat ($_) or return "Cannot access folder $_ : $!\n";
+    @file = lstat ( $_ ) or return "Cannot access folder $_ : $!\n";
 
-	$File::Find::prune |= ($file[0] ne $File::Find::topdev);
+    $File::Find::prune |= ($file[0] ne $File::Find::topdev);
 
-	if (!$File::Find::prune) {
-		if ($LASTDIR ne $File::Find::dir) {
+    if (!$File::Find::prune) {
+        if ($LASTDIR ne $File::Find::dir) {
 
-			if ($dirhash{$LASTDIR}[0]) {
-				#print "$LASTDIR c $SIZE + $dirhash{$LASTDIR}[0], $CNT + $dirhash{$LASTDIR}[1]\r";
-				$SIZE = $SIZE + $dirhash{$LASTDIR}[0];
-				$CNT = $CNT + $dirhash{$LASTDIR}[1];
-				delete $dirhash{$LASTDIR};
-			}
-			@FOLDSTAT = lstat($LASTDIR);
-			push(@{$dirhash{$LASTDIR}},$SIZE,$CNT,$FOLDSTAT[4],$FOLDSTAT[9]);
+            if ($dirhash{$LASTDIR}[0]) {
+                #print "$LASTDIR c $SIZE + $dirhash{$LASTDIR}[0], $CNT + $dirhash{$LASTDIR}[1]\r";
+                $SIZE = $SIZE + $dirhash{$LASTDIR}[0];
+                $CNT = $CNT + $dirhash{$LASTDIR}[1];
+                delete $dirhash{$LASTDIR};
+            }
+            @FOLDSTAT = lstat( $LASTDIR );
+            push( @{$dirhash{$LASTDIR}}, $SIZE, $CNT, $FOLDSTAT[4], $FOLDSTAT[9] );
 
-			$SIZE = 0;
-			$CNT = 0;
-		}
-		@stat = lstat($File::Find::name) or warn "Cannot lstat $File::Find::name: $!";
+            $SIZE = 0;
+            $CNT = 0;
+        }
+        @stat = lstat( $File::Find::name ) or warn "Cannot lstat $File::Find::name: $!";
 
-		$SIZE = $SIZE + $stat[7];
-		$CNT++;
-		$UID = $stat[4];
-		$MTIME = $stat[9];
-		#printf "F - name-%s size-%s uid-%s mtime-%s\n", $File::Find::name, $stat[7], $UID, $MTIME;
-		$file = $File::Find::name . "\;:;" . $stat[7] . "\;:;" . $stat[4] . "\;:;" . $stat[9];
-		push(@filelist,$file);
-		#push(@filelist,$File::Find::name,$stat[7]);
-	}
+        $SIZE = $SIZE + $stat[7];
+        $CNT++;
+        $UID = $stat[4];
+        $MTIME = $stat[9];
+        #printf "F - name-%s size-%s uid-%s mtime-%s\n", $File::Find::name, $stat[7], $UID, $MTIME;
+        $file = $File::Find::name."\;:;".$stat[7]."\;:;".$stat[4]."\;:;".$stat[9];
+        push( @filelist, $file );
+        #push(@filelist,$File::Find::name,$stat[7]);
+    }
 
-	$LASTDIR = $File::Find::dir;
+    $LASTDIR = $File::Find::dir;
 }
 
 # Convert the hash back to a standard array (for sorting)
 foreach $dir (sort (keys %dirhash)) {
-	$vars = "@{$dirhash{$dir}}";
-	$vars =~ s/ /\;:;/g;
-	$out = "$dir\;:;$vars";
-	push(@dirlist,$out);
+    $vars = "@{$dirhash{$dir}}";
+    $vars =~ s/ /\;:;/g;
+    $out = "$dir\;:;$vars";
+    push( @dirlist, $out );
 }
 
 #Get top X files by size
-@topfilesize = fieldsort(';:;', ['-2n'], @filelist);
+@topfilesize = fieldsort( ';:;', [ '-2n' ], @filelist );
 
 print "\nTop $opt_top Files by Size\n";
 print "  Size (bytes) Owner      Date Last Modified        Full path to file\n";
 $CNT = 0;
 foreach $row (@topfilesize) {
-	@file = split('\;:;',$row);
-	$OWNER = scalar(getpwuid($file[2]));
-	$DATETIME = scalar(localtime($file[3]));
-	if ($OWNER) {
-		printf "%14s %-10s %-25s %-s\n", commify($file[1]), $OWNER, $DATETIME, $file[0];
-	} else {
-		printf "%14s %-10s %-25s %-s\n", commify($file[1]), $file[2], $DATETIME, $file[0];
-	}
-	$CNT++;
-	last if $CNT >= $opt_top;
+    @file = split( '\;:;', $row );
+    $OWNER = scalar( getpwuid( $file[2] ) );
+    $DATETIME = scalar( localtime( $file[3] ) );
+    if ($OWNER) {
+        printf "%14s %-10s %-25s %-s\n", commify( $file[1] ), $OWNER, $DATETIME, $file[0];
+    } else {
+        printf "%14s %-10s %-25s %-s\n", commify( $file[1] ), $file[2], $DATETIME, $file[0];
+    }
+    $CNT++;
+    last if $CNT >= $opt_top;
 }
 
 #Get top X dirs by size
-@topdirsize = fieldsort(';:;', ['-2n'], @dirlist);
+@topdirsize = fieldsort( ';:;', [ '-2n' ], @dirlist );
 
 print "\nTop $opt_top Dirs by Size\n";
 print "  Size (bytes) Owner      Date Last Modified        Full path to folder\n";
 $CNT = 0;
 foreach $row (@topdirsize) {
-	@dir = split('\;:;',$row);
-	$OWNER = scalar(getpwuid($dir[3]));
-	$DATETIME = scalar(localtime($dir[4]));
-	if ($OWNER) {
-		printf "%14s %-10s %-25s %-s\n", commify($dir[1]), $OWNER, $DATETIME, $dir[0];
-	} else {
-		printf "%14s %-10s %-25s %-s\n", commify($dir[1]), $dir[3], $DATETIME, $dir[0];
-	}
-	$CNT++;
-	last if $CNT >= $opt_top;
+    @dir = split( '\;:;', $row );
+    $OWNER = scalar( getpwuid( $dir[3] ) );
+    $DATETIME = scalar( localtime( $dir[4] ) );
+    if ($OWNER) {
+        printf "%14s %-10s %-25s %-s\n", commify( $dir[1] ), $OWNER, $DATETIME, $dir[0];
+    } else {
+        printf "%14s %-10s %-25s %-s\n", commify( $dir[1] ), $dir[3], $DATETIME, $dir[0];
+    }
+    $CNT++;
+    last if $CNT >= $opt_top;
 }
 
 #Get top dirs by file count
-@topdircount = fieldsort(';:;', ['-3n'], @dirlist);
+@topdircount = fieldsort( ';:;', [ '-3n' ], @dirlist );
 
 print "\nTop Dirs with $opt_foldercnt or more files\n";
 print "         Count Owner      Date Last Modified        Full path to folder\n";
 $CNT = 0;
 foreach $row (@topdircount) {
-	@dir = split('\;:;',$row);
-	$OWNER = scalar(getpwuid($dir[3]));
-	$DATETIME = scalar(localtime($dir[4]));
-	next if $dir[2] < $opt_foldercnt;
-	if ($OWNER) {
-		printf "%14s %-10s %-25s %-s\n", commify($dir[2]), $OWNER, $DATETIME, $dir[0];
-	} else {
-		printf "%14s %-10s %-25s %-s\n", commify($dir[2]), $dir[4], $DATETIME, $dir[0];
-	}
-	$CNT++;
+    @dir = split( '\;:;', $row );
+    $OWNER = scalar( getpwuid( $dir[3] ) );
+    $DATETIME = scalar( localtime( $dir[4] ) );
+    next if $dir[2] < $opt_foldercnt;
+    if ($OWNER) {
+        printf "%14s %-10s %-25s %-s\n", commify( $dir[2] ), $OWNER, $DATETIME, $dir[0];
+    } else {
+        printf "%14s %-10s %-25s %-s\n", commify( $dir[2] ), $dir[4], $DATETIME, $dir[0];
+    }
+    $CNT++;
 }
 if ($CNT == 0) {
-	print "none found\n";
+    print "none found\n";
 }
 
 ##@topdircount = sort { $b <=> $a } @dirlist;
@@ -225,113 +226,113 @@ if ($CNT == 0) {
 ##}
 
 sub fieldsort {
-	my ($sep, $cols);
-	if (ref $_[0]) {
-		$sep = '\\s+'
-	} else {
-		$sep = shift;
-	}
-	unless (ref($cols = shift) eq 'ARRAY') {
-		die "fieldsort columns must be in anon array";
-	}
-	my (@sortcode, @col);
-	my $col = 1;
-	for (@$cols) {
-		my ($a, $b) = /^-/ ? qw(b a) : qw(a b);
-		my $op = /n$/ ? '<=>' : 'cmp';
-		push @col, (/(\d+)/)[0] - 1;
-		push @sortcode, "\$${a}->[$col] $op \$${b}->[$col]";
-		$col++;
-	}
-	my $sortfunc = eval "sub { " . join (" or ", @sortcode) . " } ";
-	my $splitfunc = eval 'sub { (split /$sep/o, $_)[@col] } ';
-	return
-	map $_->[0],
-	sort { $sortfunc->() }
-	map [$_, $splitfunc->($_)],
-	@_;
+    my ($sep, $cols);
+    if (ref $_[0]) {
+        $sep = '\\s+'
+    } else {
+        $sep = shift;
+    }
+    unless (ref( $cols = shift ) eq 'ARRAY') {
+        die "fieldsort columns must be in anon array";
+    }
+    my (@sortcode, @col);
+    my $col = 1;
+    for (@$cols) {
+        my ($a, $b) = /^-/ ? qw(b a) : qw(a b);
+        my $op = /n$/ ? '<=>' : 'cmp';
+        push @col, (/(\d+)/)[0] - 1;
+        push @sortcode, "\$${a}->[$col] $op \$${b}->[$col]";
+        $col++;
+    }
+    my $sortfunc = eval "sub { ".join ( " or ", @sortcode )." } ";
+    my $splitfunc = eval 'sub { (split /$sep/o, $_)[@col] } ';
+    return
+        map $_->[0],
+            sort { $sortfunc->() }
+                map [ $_, $splitfunc->( $_ ) ],
+                    @_;
 } # End sub fieldsort
 
 sub commify {
-	local $_  = shift;
-	1 while s/^(-?\d+)(\d{3})/$1,$2/;
-	return $_;
+    local $_ = shift;
+    1 while s/^(-?\d+)(\d{3})/$1,$2/;
+    return $_;
 } # End sub commify
 
 sub errorHandle {
-	my $sub_dir = $_[0];
-	$cwd = getcwd();
+    my $sub_dir = $_[0];
+    $cwd = getcwd();
 
-	# example: gbf -dir . and cwd = /
-	if ($sub_dir eq "\.") {
-		$sub_dir = $cwd;
-	# hidden files full path
-	} elsif ($sub_dir =~ /\/\w.*\/\.\w+/) {
-		my $base_dir = $sub_dir =~ /(\/.*)\/\./g;
-		my $top_dir  = $sub_dir =~ /\/.*\/(\..+)/g;
-		if (-d $base_dir) {
-			@cwd_files = ( bsd_glob("$base_dir/.*") );
-			foreach (@cwd_files) {
-				s/$base_dir//;
-			}
-			if ( grep(/$top_dir/, @cwd_files) ) {
-				$sub_dir = "$base_dir/$top_dir";
-			} else {
-				&usage;
-			}
+    # example: gbf -dir . and cwd = /
+    if ($sub_dir eq "\.") {
+        $sub_dir = $cwd;
+        # hidden files full path
+    } elsif ($sub_dir =~ /\/\w.*\/\.\w+/) {
+        my $base_dir = $sub_dir =~ /(\/.*)\/\./g;
+        my $top_dir = $sub_dir =~ /\/.*\/(\..+)/g;
+        if (-d $base_dir) {
+            @cwd_files = ( bsd_glob( "$base_dir/.*" ) );
+            foreach (@cwd_files) {
+                s/$base_dir//;
+            }
+            if (grep(/$top_dir/, @cwd_files)) {
+                $sub_dir = "$base_dir/$top_dir";
+            } else {
+                &usage;
+            }
 
-		}
-	# Error handle hidden files
-	} elsif ($sub_dir =~ /\.\w+/ || $sub_dir =~ /\/\.\w+/) {
-		if ($sub_dir =~ /\/\.\w+/) {
-			$sub_dir =~ s/\///;
-			# grab all hidden files
-			@cwd_files = ( bsd_glob("$cwd/.*") );
-			foreach (@cwd_files) {
-				s/$cwd//;
-			}
-			if ( grep(/$sub_dir/, @cwd_files) ) {
-				$sub_dir = "\/$sub_dir";
-			} else {
-				&usage;
-			}
-		} else {
-			@cwd_files = ( bsd_glob("$cwd/.*") );
-			foreach (@cwd_files) {
-				s/$cwd//;
-			}
-			if ( grep(/$sub_dir/, @cwd_files) ) {
-				if ($cwd eq "/") {
-					$sub_dir = "\/$sub_dir";
-				} else {
-					$sub_dir = "$cwd/$sub_dir";
-				}	
-			} else {
-				&usage;
-			}	
-		}
-	# example: gbf -dir var and cwd = /
-	} elsif ($cwd eq "/" && $sub_dir ne "/" && $sub_dir !~ /^\./ && $sub_dir =~ m/\w+/) {
+        }
+        # Error handle hidden files
+    } elsif ($sub_dir =~ /\.\w+/ || $sub_dir =~ /\/\.\w+/) {
+        if ($sub_dir =~ /\/\.\w+/) {
+            $sub_dir =~ s/\///;
+            # grab all hidden files
+            @cwd_files = ( bsd_glob( "$cwd/.*" ) );
+            foreach (@cwd_files) {
+                s/$cwd//;
+            }
+            if (grep(/$sub_dir/, @cwd_files)) {
+                $sub_dir = "\/$sub_dir";
+            } else {
+                &usage;
+            }
+        } else {
+            @cwd_files = ( bsd_glob( "$cwd/.*" ) );
+            foreach (@cwd_files) {
+                s/$cwd//;
+            }
+            if (grep(/$sub_dir/, @cwd_files)) {
+                if ($cwd eq "/") {
+                    $sub_dir = "\/$sub_dir";
+                } else {
+                    $sub_dir = "$cwd/$sub_dir";
+                }
+            } else {
+                &usage;
+            }
+        }
+        # example: gbf -dir var and cwd = /
+    } elsif ($cwd eq "/" && $sub_dir ne "/" && $sub_dir !~ /^\./ && $sub_dir =~ m/\w+/) {
 
-		# remove first slash just in case
-		$sub_dir =~ s/^\///;
-		if (-d "$sub_dir") {
-			$sub_dir =~ s/(\w+)/\/$1/;
-		} else {
-			&usage;
-		}		
-	# example: gbf -dir local and cwd = /usr
-	} elsif ($cwd ne "/" && $sub_dir ne "/" && $sub_dir !~ /^\./ && $sub_dir !~ /^\/\./ && $sub_dir !~ m/^\//) {
+        # remove first slash just in case
+        $sub_dir =~ s/^\///;
+        if (-d "$sub_dir") {
+            $sub_dir =~ s/(\w+)/\/$1/;
+        } else {
+            &usage;
+        }
+        # example: gbf -dir local and cwd = /usr
+    } elsif ($cwd ne "/" && $sub_dir ne "/" && $sub_dir !~ /^\./ && $sub_dir !~ /^\/\./ && $sub_dir !~ m/^\//) {
 
-		# Verify that $sub_dir exists in
-		# cwd then correct $sub_dir
-		if (-d "$sub_dir") {
-			$sub_dir = "$cwd/$sub_dir";
-		} else {
-			&usage;
-		}
-	
-	}
-	return $sub_dir;
+        # Verify that $sub_dir exists in
+        # cwd then correct $sub_dir
+        if (-d "$sub_dir") {
+            $sub_dir = "$cwd/$sub_dir";
+        } else {
+            &usage;
+        }
+
+    }
+    return $sub_dir;
 } # End sub errorHandle
 __END__
