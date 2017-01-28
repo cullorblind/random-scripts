@@ -2,6 +2,9 @@
 
 * aprxlogcolor.pl - hacked up logcolor.pl to do aprx logs.
 * aprxlogcolor2.pl - hacked up logcolor.pl to do aprx logs. Added local digis array.
+
+![Example of aprslogcolor2.pl](http://i.imgur.com/oV8OPXA.png)
+
 * mcManage-rsync.sh - Minecraft server - Backup script that will pause/resume saving for rsync copy.
 * notify-slack.sh - Notification script for pushing alerts to slack.
 ** Can attach output of a command. eg. gbf reports/log tail/etc.
