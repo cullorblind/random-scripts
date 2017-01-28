@@ -5,7 +5,9 @@
 * mcManage-rsync.sh - Minecraft server - Backup script that will pause/resume saving for rsync copy.
 * notify-slack.sh - Notification script for pushing alerts to slack.
 ** Can attach output of a command. eg. gbf reports/log tail/etc.
-** ![Example Slack notification](http://i.imgur.com/yTulwGJ.png)
+
+![Example Slack notification](http://i.imgur.com/yTulwGJ.png)
+
 * gbf - perl script to generate a report of large files, large directories, and directories with high file counts.
 
 # Deprecated
