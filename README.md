@@ -13,6 +13,9 @@
 
 * gbf - perl script to generate a report of large files, large directories, and directories with high file counts.
 
+![Example gbf report](http://i.imgur.com/PiNkCeb.png)
+
+
 # Deprecated
 * rotate-backups.sh - Backup server - Hard link based backup rotation script with s3cmd to keep offsite copies synced.
 ** I'm using zfs + snapshots to handle this now.
