@@ -23,7 +23,7 @@ cat <<USAGE
  Purpose  : Send alerts to Slack
             Also tracks where it was called from to aid in troubleshooting.
 
- Usage    : notify_slack.sh [-u webhookurl] [-c channel] [-e emoji] [-b botname] <-m 'message'>
+ Usage    : notify_slack.sh [-u webhookurl] [-c channel] [-e emoji] [-b botname] [-x "/path/to/executable"] <-m "message">
 
  Arg Desc : -u (webhookurl) eg. "https://hooks.slack.com/services/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX}"
             -c (channel)   default:  alerts     (channel name with preceding # excluded)
@@ -31,6 +31,10 @@ cat <<USAGE
             -b (botname)   default:  CLIBOT
             -m (message)   "make sure it's in quotes"
             -x (execute)   "/path/to/executable -and options" - capture output of command and attach
+
+                *NOTE* Output of executed command should be 80 columns wide or it will be word wrapped.
+                *NOTE* Executed output should be no more than 4 KiloBytes.
+                *NOTE* You should not allow this alert to be called more than once per second per slacks API guidelines.
 
  Examples : Send a simple message to the default channel
           : notify_slack.sh -m "This is a test message from the command line"
