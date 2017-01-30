@@ -1,5 +1,13 @@
 #!/bin/sh
 
+#--- TODO ---#
+# * Probably rewrite in Perl.
+# * More safety checks
+#   - Capture status output from curl and determine action if it's not "ok" (email/some other alert mechanism)
+#   - limit output of execute output to 4k. (saw this limit in slacks documentation somewhere)
+#   - prevent spamming - repeating the same message
+#   - rate limits = https://api.slack.com/docs/rate-limits
+
 #--- ENV ---# configure these as defaults if not called from command line
 function f_env
 {
