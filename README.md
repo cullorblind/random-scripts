@@ -2,6 +2,7 @@
 
 * **aprxlogcolor.pl** - hacked up logcolor.pl to do aprx logs.
 * **aprxlogcolor2.pl** - hacked up logcolor.pl to do aprx logs. Added local digis array.
+* **aprx-rf.sec** - Monitor aprx rf log for 15 minute inactivity of packets received from TNC and call notify-slack if there's a problem.
 
 ![Example of aprslogcolor2.pl](http://i.imgur.com/oV8OPXA.png)
 

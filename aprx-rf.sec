@@ -1,0 +1,31 @@
+# SEC (Simple Event Correlator)
+#    Monitor for inactivity of received aprx packets within the past 15 minutes and notify using notify-slack.sh
+#
+# SEC COMMAND LINE
+#   /home/tc/sec/sec -conf=/home/tc/sec.rules/aprx-rf.sr -input=/var/log/aprx/aprx-rf.log -intevents
+#
+# EXAMPLE LOG INPUT
+# 2017-02-01 20:10:33.923 KE5KUL    R AMANE>APN382:!3514.13NN10148.02W#phg9230/A=003360/N5LUL
+# 2017-02-01 20:10:45.648 KE5KUL    R WALSH>APN383,CDS*,WAYSID*,AMA39*,WIDE3*:3458.58Np09924.62W#PHG6460/A=002303/ALTUS SKYWARN 444.650 TONE 100.0
+# 2017-02-01 20:11:42.727 KE5KUL    R CDS>APN391,WAYSID*,AMA39*,WIDE4-1:!3426.19nN10013.37w#PHG7430/W3,WTX DE NL7C nl7c@arrl.net
+
+# Alternative shellcmd to include last two received packets from TNC.  notify-slack needs some work for this to be reliable.
+# action=shellcmd /home/tc/notify-slack.sh -m '%s' -x "grep KE5KUL\ \ \ \ R /var/log/aprx/aprx-rf.log | tail -2"
+
+type=Calendar
+time=* * * * *
+desc=CHECKAPRX
+action=event %s
+
+# pattern2 matches lines containing " KE5KUL    R"
+# action/action2 %s is populated with the desc/desc2 fields
+type=PairWithWindow
+ptype=SubStr
+pattern=CHECKAPRX
+desc=Its been more than 15 minutes since aprx logged a packet from the TNC!
+action=shellcmd /home/tc/notify-slack.sh -m '%s'
+ptype2=RegExp
+pattern2= KE5KUL\s+R 
+desc2=aprx is functioning normally
+action2=logonly %s
+window=900
