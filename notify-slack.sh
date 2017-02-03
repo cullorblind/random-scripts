@@ -2,6 +2,7 @@
 
 #--- TODO ---#
 # * Probably rewrite in Perl.
+# * More stuff to strip from EXECOUTPUT becuase occasional invalid payload happens still
 # * More safety checks
 #   - Capture status output from curl and determine action if it's not "ok" (email/some other alert mechanism)
 #   - limit output of execute output to 4k. (saw this limit in slacks documentation somewhere)
@@ -84,12 +85,20 @@ ID=$(/bin/id -un)
 #--- THEREST ---#
 if [[ ${MESSAGE} ]]; then
 
-  if [[ ${EXECUTE} ]]; then
-    EXECOUTPUT="$(eval ${EXECUTE})"
-    /bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" }, { \"color\": \"#4636ff\", \"text\": \"\`\`\`# ${EXECUTE}${EXECOUTPUT}\`\`\`\", \"mrkdwn_in\": [ \"text\" ] } ] }" ${WEBHOOKURL}
-  else
-    /bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" } ] }" ${WEBHOOKURL}
-  fi
+	if [[ ${EXECUTE} ]]; then
+		EXECOUTPUT="$(eval ${EXECUTE})"
+		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/"//g')
+		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/&/\&amp;/g')
+		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/</\&lt;/g')
+		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/>/\&gt;/g')
+
+		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" }, { \"color\": \"#4636ff\", \"text\": \"\`\`\`# ${EXECUTE}${EXECOUTPUT}\`\`\`\", \"mrkdwn_in\": [ \"text\" ] } ] }" ${WEBHOOKURL}
+
+	else
+
+		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" } ] }" ${WEBHOOKURL}
+
+	fi
 
 else
 
