@@ -2,7 +2,7 @@
 #    Monitor for inactivity of received aprx packets within the past 15 minutes and notify using notify-slack.sh
 #
 # SEC COMMAND LINE
-#   /home/tc/sec/sec -conf=/home/tc/sec.rules/aprx-rf.sr -input=/var/log/aprx/aprx-rf.log -intevents
+#   /usr/local/bin/sec -conf=/etc/sec/aprx-rf.sec -input=/var/log/aprx/aprx-rf.log -intevents
 #
 # EXAMPLE LOG INPUT
 # 2017-02-01 20:10:33.923 KE5KUL    R AMANE>APN382:!3514.13NN10148.02W#phg9230/A=003360/N5LUL
@@ -23,7 +23,7 @@ type=PairWithWindow
 ptype=SubStr
 pattern=CHECKAPRX
 desc=Its been more than 15 minutes since aprx logged a packet from the TNC!
-action=shellcmd /home/tc/notify-slack.sh -m '%s'
+action=shellcmd /usr/local/bin/notify-slack.sh -m '%s'
 ptype2=RegExp
 pattern2= KE5KUL\s+R 
 desc2=aprx is functioning normally
