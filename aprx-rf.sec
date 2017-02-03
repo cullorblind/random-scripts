@@ -10,7 +10,7 @@
 # 2017-02-01 20:11:42.727 KE5KUL    R CDS>APN391,WAYSID*,AMA39*,WIDE4-1:!3426.19nN10013.37w#PHG7430/W3,WTX DE NL7C nl7c@arrl.net
 
 # Alternative shellcmd to include last two received packets from TNC.  notify-slack needs some work for this to be reliable.
-# action=shellcmd /home/tc/notify-slack.sh -m '%s' -x "grep KE5KUL\ \ \ \ R /var/log/aprx/aprx-rf.log | tail -2"
+# action=shellcmd /usr/local/notify-slack.sh -m '%s' -x "grep KE5KUL\ \ \ \ R /var/log/aprx/aprx-rf.log | tail -2"
 
 type=Calendar
 time=* * * * *
