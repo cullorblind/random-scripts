@@ -1,0 +1,615 @@
+#!/bin/bash
+#
+#	program:	dlint
+#	usage:		dlint [-r] zone
+#	options:	-r   no recursion
+#	purpose:	To scan through a DNS zone domain hierarchy and report certain
+#			possible configuration problems found therein.
+#	output:		A verbose description of what was found in comments,
+#			with warnings and error messages of any problems.
+#			Output is intended to be computer-parsable.
+#			Usage message gets printed on stderr.
+#	exit value:	0 if everything looks right
+#			1 if nothing worse than a warning was found
+#			2 if any errors were found
+#			3 for usage error (i.e., incorrect command line options)
+#
+# Copyright (C) 1993-1998 Paul A. Balyoz <pab@domtools.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+# UPDATES
+#    Apr 11, 2017 - Damon Massey <masseyd@amarillowireless.net>
+#                 - Cleaned up sed/awk/grep for new gnu compatibility
+#                 - Added Color for better visibility
+#                 - Changed default to non-recursive.  Use -r to recurse.
+#
+# NOTES
+#
+#  * Handling localhost (127.0.0.1) is hard, how should it really be done?
+#    If you define localhost.<domain> in many domains, you are screwed when you
+#    look up 1.0.0.127.in-addr.arpa because it can only point to one of them.
+#    Now maybe you think that 1.0.0.127.in-addr.arpa should point to "localhost."
+#    But will all software on all computers really query "localhost." (in the root
+#    domain), or will they actually be querying "localhost" (no dot, so resolver
+#    considers it in the current domain)?
+#    Current Solution: special-case "localhost" 127.0.0.1.
+#    The only localhost-related things we check now are:
+#	* 1.0.0.127.in-addr.arpa. points to some host that doesn't point back to
+#		127.0.0.1 (normal TEST 3a checking),
+#	* if hostname "localhost" in any domain maps to an IP address other than
+#		127.0.0.1 (or host has address 127.0.0.1 but isn't named localhost),
+#	* 1.0.0.127.in-addr.arpa. doesn't point to hostname "localhost" in any
+#		domain (or it has host "localhost" but wrong in-addr.arpa address).
+
+#  * Dump your list of domains to a file and you can query them all together.
+#       * zones.txt --
+#           1.168.192.in-addr.arpa.
+#           2.168.192.in-addr.arpa.
+#           5.0.0.0.4.3.2.1.1.0.0.2.ip6.arpa.
+#           domain.com.
+#           sub.domain.com.
+#
+#       * for zone in $(cat zones.txt); do dlint $zone; done
+
+
+# Path to standard bin dirs on many platforms.
+# Be sure this path includes the directory that holds your dig executable:
+if test x"$PATH" = x""; then	# for security purposes
+	PATH="/usr/ucb:/usr/bsd:/bin:/usr/bin:/usr/local/bin:/usr/share/bin:/usr/com/bin"
+else
+	PATH="${PATH}:/usr/ucb:/usr/bsd:/bin:/usr/bin:/usr/local/bin:/usr/share/bin:/usr/com/bin"
+fi
+export PATH
+
+VERSION=1.4.0
+
+# ----------- BEGIN CONFIGURATIONS -------------------------
+
+# RR filter from DiG output format to all FQDN on every line format.
+# Change this path for your site!  See Makefile.
+rrfilt="/usr/local/bin/digparse"
+
+#colors
+COL_NORM='\033[0m'
+WHITE='\033[1;37m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[1;34m'
+
+
+# ------------- END CONFIGURATIONS -------------------------
+
+
+TMPNS=/var/tmp/dlintns.$$
+TMPZONE=/var/tmp/dlintzone.$$
+TMPPTR=/var/tmp/dlintptr.$$
+TMPA=/var/tmp/dlinta.$$
+TMPSUBDOMS=/var/tmp/dlintsubdoms.$$
+TMPERR=/var/tmp/dlinterr.$$
+TMPERR2=/var/tmp/dlinterr2.$$
+TMPSERIALS=/var/tmp/dlintserials.$$
+
+trap "rm -f $TMPNS $TMPZONE $TMPPTR $TMPA $TMPSUBDOMS $TMPERR $TMPERR2; exit 4" 1 2 3 15
+
+usage() {
+	echo 'usage: dlint [-r] zone' 2>&1
+	echo '       example zones:  yoursite.com.  3.2.1.in-addr.arpa.' 2>&1
+	exit 3
+}
+
+if test $# -lt 1 -o $# -gt 2; then
+	usage
+fi
+
+#
+# Check if dig is installed and get the version number.
+# If version < 2.1, fail.  If version 9 or greater, set special settings.
+#
+ver=`dig localhost any | grep DiG | head -1 | sed -e 's/.*DiG \([0-9.]*\).*/\1/'`
+
+ans=`echo $ver | awk '$1 >= 2.1 {print "ok"; exit}'`		# floating point math
+if test x"$ans" != x"ok"; then
+	printf '${BLUE};;${COL_NORM} This program requires DiG version 2.1 or newer, which I cannot find.\n'
+	exit 3
+fi
+
+dig9=`echo $ver | awk '$1 >= 9.0 {print "yes"; exit}'`		# floating point math
+
+#
+# Options - why'd they change so many of these in BIND 9?
+#    The +nostats option is not documented in BIND 9.0.1 but works.
+#
+if test x"$dig9" = x"yes"; then
+	digopts='+ret=2 +noauthority +noadditional +noquestion +nostats +nocmd'
+else
+	digopts='+ret=2 +noauthor +noaddit +noques +noHeader +noheader +cl +noqr +nostats +nocmd'
+fi
+
+#
+# Other things you might need to change
+#
+# Filter that converts input to lowercase
+tolower='tr A-Z a-z'
+
+#
+# Initialize flags (leave these alone)
+#
+exitcode=0 recurse=false silent=false domain='' inaddrdomain=false
+
+#
+# Determine type of domain (forward or inverse)
+#    arg 1 = domain name with ending period.
+#    returns:  "inverse" or "forward" on stdout
+#
+domaintype () {
+	lcdom=`echo "$1" | $tolower`
+	case $lcdom in
+		*in-addr.arpa.)
+			echo "inverse"
+			;;
+		*)
+			echo "forward"
+			;;
+	esac
+}
+
+#
+# Parse command-line arguments
+#
+for i do
+	case "$i" in
+		-r)		recurse=true
+				;;
+
+		-silent)	silent=true
+				;;
+
+		*)		if test x"$domain" = x""; then
+					domain="$i"
+				else
+					usage
+				fi
+				;;
+	esac
+done
+
+# Reverse-sense flags
+
+if $silent; then
+	notsilent=false
+else
+	notsilent=true
+fi
+
+# No domain or empty domain specified
+
+if test x"$domain" = x""; then
+	usage
+fi
+
+# Determine if domain is inverse-address or not
+
+ans=`echo $domain | $tolower | awk '/.in-addr.arpa/ {print "ok"; exit}'`
+if test x"$ans" = x"ok"; then
+	inaddrdomain=true
+fi
+
+#
+# Print welcome message if not calling self recursively
+#
+if $notsilent; then
+printf "${WHITE}######----------------------------------------------------#####${COL_NORM}\n"
+printf "${BLUE};; ${BLUE}============================================================${COL_NORM}\n"
+	printf "${BLUE};;${COL_NORM} command line: ${GREEN}$0 $*${COL_NORM}\n"
+	printf "${BLUE};;${COL_NORM} flags: "
+	if $inaddrdomain; then
+		printf " inaddr-domain"
+	else
+		printf " normal-domain"
+	fi
+	if [[ $recurse = true ]]; then
+		printf " recursive\n"
+	else
+		printf " not-recursive\n"
+	fi
+	printf "${BLUE};;${COL_NORM} using dig version $ver\n"
+	printf "${BLUE};;${COL_NORM} run starting: `date`\n"
+fi
+
+printf "${BLUE};; ============================================================${COL_NORM}\n"
+printf "${BLUE};;${COL_NORM} Now linting ${GREEN}$domain${COL_NORM}\n"
+
+#
+# Identify all nameservers for this zone
+#
+#echo "XX $domain NS"
+dig $domain NS $digopts | $rrfilt | awk '$2=="NS" {print $3}' > $TMPNS
+if test ! -s $TMPNS; then
+	printf "${RED}ERROR${COL_NORM}: no name servers found for domain ${YELLOW}$domain${COL_NORM}\n"
+	printf "	That domain is probably not a zone.  Remove the leftmost portion of the name and try again.\n"
+	printf "${BLUE};;${COL_NORM} ${YELLOW}============================================================${COL_NORM}\n"
+	printf "${BLUE};;${COL_NORM} dlint of ${GREEN}$domain${COL_NORM} run ending with errors.\n"
+	printf "${BLUE};;${COL_NORM} run ending: ${GREEN}`date`${COL_NORM}\n"
+	rm -f $TMPNS $TMPZONE $TMPPTR $TMPA $TMPSUBDOMS $TMPERR $TMPERR2
+	exit 2
+fi
+
+#
+# TEST 1
+# Check all zone nameservers' SOA RRs for serial number similarity.
+# If they have < 2 nameservers, complain.
+#
+responding=
+if test `wc -l < $TMPNS` -eq 1; then
+	printf "${YELLOW}WARNING${COL_NORM}: only 1 nameserver found for zone ${YELLOW}$domain${COL_NORM}\n"
+	echo "	Every zone should have 2 or more nameservers at all times."
+	test $exitcode -lt 1 && exitcode=1
+else
+	printf "${BLUE};;${COL_NORM} Checking serial numbers per nameserver\n"
+	rm -f $TMPSERIALS
+	for ns in `cat $TMPNS`; do
+		# Sanity check nameserver's name
+		if test x`domaintype $ns` = x"inverse"; then
+			printf "${YELLOW}WARNING{$COL_NORM}: nameserver $ns has in-addr.arpa. in its name which is bad; skipping.\n"
+			echo "	I'll bet you left off its full domain name on the NS record, as in:"
+			echo "	$domain	IN	NS	someserver"
+			echo "	You should append the fully qualified domain name with ending period, as in:"
+			echo "	$domain	IN	NS	someserver.your.domain.com."
+			test $exitcode -lt 1 && exitcode=1
+			continue
+		fi
+		# Ask this nameserver for domain's SOA record
+#echo "XX @$ns $domain SOA"
+		serial=`dig @$ns $domain SOA $digopts 2> $TMPERR | $rrfilt | \
+				awk '$2=="SOA" {print $5; exit}'`
+		# Ignore run-time errors that aren't real errors:
+		#	(BIND 9.0.1 default build in RedHat Linux 7.0)
+		grep -v setsockopt $TMPERR > $TMPERR2
+		mv $TMPERR2 $TMPERR
+		# Eliminate nameservers that couldn't return an SOA for zone $ns
+		if test ! -s $TMPERR; then
+			printf "${BLUE};;${COL_NORM}     $serial $ns\n";
+			echo "$serial $ns" >> $TMPSERIALS
+		else
+			printf "${YELLOW}WARNING${COL_NORM}: nameserver $ns returned an error when asked for SOA of $domain; skipping.\n"
+			test $exitcode -lt 1 && exitcode=1
+			responding=" responding"
+		fi
+	done
+	if test ! -s $TMPSERIALS; then
+		printf "${RED}ERROR${COL_NORM}: no good name servers found for domain ${YELLOW}$domain${COL_NORM}\n"
+		printf "	Aborting run.\n"
+		printf "${BLUE};;${COL_NORM} ${YELLOW}============================================================${COL_NORM}\n"
+		printf "${BLUE};;${COL_NORM} dlint of ${GREEN}$domain${COL_NORM} run ending with errors.\n"
+		printf "${BLUE};;${COL_NORM} run ending: ${GREEN}`date`${COL_NORM}\n"
+		rm -f $TMPNS $TMPZONE $TMPPTR $TMPA $TMPSUBDOMS $TMPERR $TMPERR2 $TMPSERIALS
+		exit 2
+	fi
+	if test `awk '{print $1}' < $TMPSERIALS | sort -u | wc -l` -gt 1; then
+		printf "${YELLOW}WARNING${COL_NORM}: nameservers don't seem to agree on the zone's serial number.\n"
+		printf "	Dlint will query nameserver with largest serial number first.\n"
+		test $exitcode -lt 1 && exitcode=1
+	else
+		printf "${BLUE};;${COL_NORM} All$responding nameservers agree on the serial number.\n"
+	fi
+	# Re-order nameservers from highest SOA serial number to lowest.
+	# This also removes bogus nameservers from $TMPNS.
+	sort -k 1nr $TMPSERIALS | awk '{print $2}' > $TMPNS
+	rm -f $TMPSERIALS
+fi
+
+
+#
+# SETUP FOR TESTS 2 AND 3
+# Transfer this whole zone to a temporary file
+#
+printf "${BLUE};;${COL_NORM} Now caching whole zone (this could take a minute)\n"
+i=1
+badns=true
+while test $i -le `wc -l < $TMPNS`; do
+	badns=false
+	ns=`tail -n +$i $TMPNS | head -1`
+	printf "${BLUE};;${COL_NORM} trying nameserver ${GREEN}$ns${COL_NORM}\n"
+#echo "XX @$ns $domain AXFR"
+	dig @$ns $domain AXFR $digopts 2> $TMPERR | $rrfilt > $TMPZONE
+	# Ignore run-time errors that aren't real errors:
+	#	(BIND 9.0.1 default build in RedHat Linux 7.0)
+	grep -v setsockopt $TMPERR > $TMPERR2
+	mv $TMPERR2 $TMPERR
+	if test `wc -l < $TMPERR` -eq 0; then
+		break
+	fi
+	printf "${YELLOW}WARNING${COL_NORM}: nameserver $ns is not responding properly to queries; skipping.\n"
+	badns=true
+	test $exitcode -lt 1 && exitcode=1
+	i=`expr $i + 1`
+done
+if $badns; then
+	printf "${RED}ERROR${COL_NORM}: could not find any working nameservers for $domain\n"
+	printf "${BLUE};;${COL_NORM} ${YELLOW}============================================================${COL_NORM}\n"
+	echo ";; dlint of $domain run ending with errors."
+	echo ";; run ending: `date`"
+	rm -f $TMPNS $TMPZONE $TMPPTR $TMPA $TMPSUBDOMS $TMPERR $TMPERR2
+	test $exitcode -lt 2 && exitcode=2
+	exit $exitcode
+fi
+
+#
+# TEST 2
+# Look for all zone records with "#" as first character (illegal) --
+# they probably thought they were commenting out a line!
+#
+grep '^#' $TMPZONE > $TMPA
+if test $? -eq 0; then
+	printf "${RED}ERROR${COL_NORM}: some zone records begin with '#' character which is illegal.\n"
+	test $exitcode -lt 2 && exitcode=2
+	len=`wc -l < $TMPA`
+	if test $len -lt 5; then
+		echo "	Use ';' for comment symbol, not '#'!  Offending records:"
+		sed -e 's/^/		/' < $TMPA
+	else
+		echo "	Use ';' for comment symbol, not '#'!  First 5 offending records:"
+		head -5 $TMPA | sed -e 's/^/		/'
+	fi
+fi
+
+#
+# TEST 3a (for in-addr.arpa domains)
+# All PTR records' hosts must have an A record with the same address,
+# unless that PTR rec is a network name instead of a host [RFC1101]
+# (see later tests).  But we don't know if it's really a network or
+# just a host with a missing A record, so we report it.
+# Any PTR record for 1.0.0.127.in-addr.arpa should point to a host named
+# "localhost" (in any domain), and vice-versa.
+#
+# BUG: We assume all X.X.X.X.in-addr.arpa format names are those of hosts,
+#      and all others (less than 4 X's) are networks.  But if you happen to
+#      be doing subnetting such that the number of host bits < 8, then your
+#      subnets will have 4 octets too, which we don't handle properly.
+#      Before CIDR, this couldn't be done right without strict RFC1101
+#      adherance, which nobody really cared about except myself.
+#      With CIDR it may be possible, I need to sit down and think about it.
+#
+if $inaddrdomain; then
+	awk '!/^;/ && $2=="PTR"' < $TMPZONE | sort -u > $TMPPTR
+	i=0
+	len=`wc -l < $TMPPTR`
+	if test $len -gt 0; then
+		printf "${BLUE};;${COL_NORM} ${GREEN}$len${COL_NORM} PTR records found.\n"
+	else
+		printf "${RED}ERROR${COL_NORM}: no PTR records found.\n"
+		test $exitcode -lt 2 && exitcode=2
+	fi
+	while test $i -lt $len; do
+		i=`expr $i + 1`
+		set `tail -n +$i $TMPPTR | head -1`
+		inaddr=$1 host=$3
+		# if not 4 numeric octets, assume it's a network address.
+		num=`echo $inaddr | tr . '\012' | awk '{r++} /^in-addr$/ {print r - 1}'`
+		if test 0"$num" -ne 4; then
+			continue
+		fi
+		# this may hold more than one address if host is multihomed or a gateway:
+#echo "XX $host A"
+		addr=`dig $host A $digopts | $rrfilt | awk '$2=="A" {print $3}'`
+		if test x"$addr" = x""; then
+			case $inaddr in
+			    '#'*)
+				printf "${RED}ERROR${COL_NORM}: illegal domain name ${YELLOW}$inaddr${COL_NORM} has a PTR record.\n"
+				echo "	Use ';' for zone file comments, not '#'!"
+				test $exitcode -lt 2 && exitcode=2
+				;;
+			    *)
+				printf "${YELLOW}WARNING${COL_NORM}: \"$inaddr PTR $host\", but $host has no A record.\n"
+				echo "	But that's OK only if it's a network or other special name instead of a host."
+				test $exitcode -lt 1 && exitcode=1
+				;;
+			esac
+			continue
+		fi
+		ina=`echo $inaddr | awk -F. '{print $4 "." $3 "." $2 "." $1}'`
+		a=`echo "$addr" | awk "/^$ina\$/ {print}"`
+		if test x"$a" != x""; then
+#			echo ";; $inaddr and $addr match."
+			:
+		else
+			printf "${RED}ERROR${COL_NORM}: \"${YELLOW}$inaddr${COL_NORM} PTR ${YELLOW}$host${COL_NORM}\", but the address of ${YELLOW}$host${COL_NORM} is really ${YELLOW}$addr${COL_NORM}\n"
+			test $exitcode -lt 2 && exitcode=2
+		fi
+
+		# If record is 1.0.0.127.in-addr.arpa., make sure hostname is localhost.*
+		if test x"$ina" = x"127.0.0.1"; then
+			hostname=`echo $host | awk -F. '{print $1}' | $tolower`
+			if test x"$hostname" != x"localhost"; then
+				printf "${YELLOW}WARNING${COL_NORM}: \"$inaddr PTR $host\", but it should point to localhost instead.\n"
+				echo "	This could confuse some computers (particularly Unix) in that domain."
+				test $exitcode -lt 1 && exitcode=1
+			fi
+		fi
+
+		# If record has host named localhost.*, make sure PTR rec is 1.0.0.127.in-addr.arpa.
+		hostname=`echo $host | awk -F. '{print $1}' | $tolower`
+		if test x"$hostname" = x"localhost"; then
+			if test x"$ina" != x"127.0.0.1"; then
+				printf "${YELLOW}WARNING${COL_NORM}: \"$inaddr PTR $host\", but only 1.0.0.127.in-addr.arpa. should point to localhost.\n"
+				echo "	This could confuse some computers (particularly Unix) in that domain."
+				test $exitcode -lt 1 && exitcode=1
+			fi
+		fi
+	done
+
+#
+# TEST 3b (for regular domains)
+# All hosts with A records must have reverse in-addr.arpa PTR records
+# and they should point back to the same host name.
+# Any host named "localhost" in any domain should have IP address 127.0.0.1,
+# and vice-versa.
+#
+# BUG: Sometimes there will be a special host in a domain that has an A record
+#      pointing to some host which has a different name in _another_ zone.
+#      Example:  info.nau.edu is really pumpkin.ucc.nau.edu in disguise.
+#      This is currently reported as an error, there's no way to tell it is
+#      intentional.  (not sure how to deal with this)
+#
+else
+	awk '!/^;/ && $2=="A"' < $TMPZONE | sort -u > $TMPA
+	i=0
+	len=`wc -l < $TMPA`
+	if test $len -gt 0; then
+		printf "${BLUE};;${COL_NORM} ${GREEN}$len${COL_NORM} A records found.\n"
+	else
+		printf "${RED}ERROR${COL_NORM}: no A records found.\n"
+		test $exitcode -lt 2 && exitcode=2
+	fi
+	while test $i -lt $len; do
+		i=`expr $i + 1`
+		set `tail -n +$i $TMPA | head -1`
+		host=$1 addr=$3
+		inaddr=`echo $addr | awk -F. '{print $4 "." $3 "." $2 "." $1 ".in-addr.arpa."}'`
+#echo "XX $inaddr PTR"
+		inhost=`dig $inaddr PTR $digopts | $rrfilt | awk '$2=="PTR" {print $3}'`
+		if test x"$inhost" = x""; then
+			case $host in
+			    '#'*)
+				printf "${RED}ERROR${COL_NORM}: illegal domain name ${YELLOW}$host${COL_NORM} has an A record.\n"
+				echo "	Use ';' for zone file comments, not '#'!"
+				;;
+			    *)
+				printf "${RED}ERROR${COL_NORM}: ${YELLOW}$host${COL_NORM} has an A record of ${YELLOW}$addr${COL_NORM}, but no reverse PTR record for ${YELLOW}$inaddr${COL_NORM} can be found on nameserver ${YELLOW}$ns${COL_NORM}\n"
+				echo "	The following resource record should be added:"
+				echo "	$inaddr	IN	PTR	$host"
+				;;
+			esac
+			test $exitcode -lt 2 && exitcode=2
+			continue
+		fi
+		numptrs=`echo "$inhost" | wc -l`
+		# numptrs ends up with lots of spaces in it, so don't put it inside quotes...
+		if test $numptrs -gt 1; then
+			printf "${RED}ERROR${COL_NORM}: ${YELLOW}$inaddr${COL_NORM} has ${YELLOW}$numptrs${COL_NORM} PTR records, but there should be only 1.\n"
+			test $exitcode -lt 2 && exitcode=2
+		fi
+		lhost=`echo $host | $tolower`
+		multipleinhosts="$inhost"
+		foundit=0
+		for inhost in $multipleinhosts; do
+			linhost=`echo $inhost | $tolower`
+			if test x"$linhost" = x"$lhost"; then
+				foundit=1
+			fi
+		done
+		if test x"$addr" != x"127.0.0.1"; then
+			if test $foundit -eq 0; then
+#echo "XX @$ns $host SOA"
+				soa=`dig @$ns $host SOA $digopts | $rrfilt | awk '$2=="SOA" {print "ok";exit}'`
+				if test x"$soa" = x"ok"; then
+					printf "${YELLOW}WARNING${COL_NORM}: the zone $host has an A record but no reverse PTR record.  ${GREEN}This is probably OK${COL_NORM}.\n"
+					test $exitcode -lt 1 && exitcode=1
+				else
+					if test $numptrs -eq 1; then
+						printf "${RED}ERROR${COL_NORM}: \"${YELLOW}$host A $addr${COL_NORM}\", but the PTR record for ${YELLOW}$inaddr${COL_NORM} is \"${YELLOW}$inhost${COL_NORM}\"\n"
+					else
+						# NOTE: don't remove 2nd "echo", it's necessary:
+						printf "${RED}ERROR${COL_NORM}: \"${YELLOW}$host${COL_NORM} A ${YELLOW}$addr${COL_NORM}\", but the PTR records for ${YELLOW}$inaddr${COL_NORM} are \"${YELLOW}`echo $multipleinhosts`${COLOR_NORM}\"\n"
+					fi
+					test $exitcode -lt 2 && exitcode=2
+					echo "	One of the above two records are wrong unless the host is a name server or mail server."
+					echo "	To have 2 names for 1 address on any other hosts, replace the A record"
+					if test $numptrs -eq 1; then
+						echo "	with a CNAME record:"
+					else
+						echo "	with a CNAME record referring to the proper host, for example:"
+					fi
+					echo "	$host	IN	CNAME	$inhost"
+					continue
+				fi
+			fi
+
+		else
+			# IP address is 127.0.0.1 -- make sure hostname is localhost.*
+			hostname=`echo $lhost | awk -F. '{print $1}'`
+			if test x"$hostname" != x"localhost"; then
+				printf "${YELLOW}WARNING${COL_NORM}: \"$host A $addr\", but only localhost should be 127.0.0.1.\n"
+				echo "	This could confuse some computers (particularly Unix) in that domain."
+				test $exitcode -lt 1 && exitcode=1
+			fi
+		fi
+
+		# if hostname is localhost.*, make sure IP address is 127.0.0.1
+		hostname=`echo $lhost | awk -F. '{print $1}'`
+		if test x"$hostname" = x"localhost" -a x"$addr" != x"127.0.0.1"; then
+			printf "${YELLOW}WARNING${COL_NORM}: \"$host A $addr\", but localhost should always be 127.0.0.1.\n"
+			echo "	This could confuse some computers (particularly Unix) in that domain."
+			test $exitcode -lt 1 && exitcode=1
+		fi
+	done
+fi
+
+
+##############################
+# OTHER TESTS GO HERE
+##############################
+
+
+#
+# Recursively traverse all sub-domains beneath this domain
+#
+
+if [[ $recurse = true ]]; then
+#echo "XX @$ns $domain AXFR"
+	dig @$ns $domain AXFR $digopts | $rrfilt | awk '$2=="NS" {print $1}' | grep -iv "^$domain\$" | sort -u > $TMPSUBDOMS
+	if test -s $TMPSUBDOMS; then
+		i=1
+		len=`wc -l < $TMPSUBDOMS`
+		while test $i -le $len; do
+			line=`sed -e "$i!d" < $TMPSUBDOMS`
+
+			# run ourself to analyze the subdomain
+			$0 -silent $line
+			status=$?
+			case $status in
+			    3)	exitcode=$status
+				break ;;
+			    4)	exitcode=$status
+				break ;;
+			    *)	if test $status -gt $exitcode; then
+					exitcode=$status
+				fi ;;
+			esac
+			i=`expr $i + 1`
+		done
+	else
+		echo ";; no subzones found below $domain, so no recursion will take place."
+	fi
+fi
+
+#
+# Quit with proper error code
+#
+printf "${BLUE};; ============================================================${COL_NORM}\n"
+printf "${BLUE};;${COL_NORM} dlint of ${GREEN}$domain${COL_NORM} run ending "
+case $exitcode in
+	0)	echo "normally." ;;
+	1)	echo "with warnings." ;;
+	2)	echo "with errors." ;;
+	3)	echo "due to usage error." ;;
+	4)	echo "due to signal interruption." ;;
+esac
+printf "${BLUE};;${COL_NORM} run ending: ${GREEN}`date`${COL_NORM}\n"
+printf "${WHITE}######----------------------------------------------------#####${COL_NORM}\n"
+rm -f $TMPNS $TMPZONE $TMPPTR $TMPA $TMPSUBDOMS $TMPERR $TMPERR2
+exit $exitcode

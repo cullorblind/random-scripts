@@ -1,0 +1,208 @@
+#!/usr/bin/perl
+#
+# digparse
+#
+# Perl code that converts DiG output (version 2.x, 8.x, 9.x) into
+# the easily parsable form:
+#
+#	HOST	RR	RR-ARGS
+# i.e.
+#	fire.domtools.com.  A  10.0.0.10
+#	fire.domtools.com.  MX  10  flame.domtools.com.
+#
+# It understands $ORIGIN and @ and can expand @, blank LHS's, and non-dot-terminated
+# LHS and RHSs.  No comments or blank lines are printed.
+#
+# Usage with Dig 2 thru 8:  dig @server.dom.ain. AXFR dom.ain. +ret=2 +noauthor +noaddit \
+#			    +noques +noHeader +noheader +cl +noqr +nostats +nocmd | \
+#			    digparse > file
+#
+# Usage with Dig 9:         dig @server.dom.ain. AXFR dom.ain. +ret=2 +noauthority \
+#			    +noadditional +noquestion +nostats +nocmd | digparse > file
+#
+# There are many differences in output between DiG 2.x, 8.x, and 9.x.
+# 2.x doesn't display the class ("IN").
+# 8.x abbreviates time fields with letters like "h"=hours, "m"=minutes, "s"=seconds,
+#     and uses "@" for default origin and sometimes leaves domain off entirely so you
+#     have to carry forward the current domain name from lines above.
+# 9.x output is perfect in every way.
+#
+# Example inputs that Digparse can parse (using options above) --
+#
+#    Dig 9.x:    domtools.com.   86400   IN      SOA     fire.domtools.com. hostmaster.domtools.com. ( 2000111600 28815 3615 2073600 86400 )
+#		 domtools.com.   86400   IN      NS      ns0.domtools.com.
+#
+#    Dig 8.x:    $ORIGIN domtools.com.
+#		 @               1D IN SOA       fire hostmaster (
+#                                        2000111600      ; serial
+#                                        8h15s           ; refresh
+#                                        1h15s           ; retry
+#                                        3w3d            ; expiry
+#                                        1D )            ; minimum
+#
+#		                 1D IN NS        ns0
+#
+#    Dig 2.x:    domtools.com.   86400   SOA     fire.domtools.com. hostmaster.domtools.com. (
+#                        2000111600      ; serial
+#                        28815   ; refresh (8 hours 15 secs)
+#                        3615    ; retry (1 hour 15 secs)
+#                        2073600 ; expire (24 days)
+#                        86400 ) ; minimum (1 day)
+#		 domtools.com.   86400   NS      ns0.domtools.com.
+#
+# Output from digparse for all above inputs:
+#
+#     domtools.com.       SOA      fire.domtools.com. hostmaster.domtools.com.  2000111600 28815 3615 2073600 86400
+#     domtools.com.       NS       ns0.domtools.com.
+#
+# However the seconds are left as-is, so they'll contain h,m,s abbreviations
+# when using BIND 8 (but not 2, or 9!)  We don't care because Dlint doesn't use them.
+#
+# Paul Balyoz <pab@domtools.com>
+#
+
+# RRs that have a domain name for their rightmost field
+# (we tack the default domain onto domains that don't end in ".")
+%rhs_is_domain = (
+	"NS"=>1,
+	"PTR"=>1,
+	"MX"=>1,
+	"CNAME"=>1,
+);
+
+# DNS Class Table
+%classes = (
+	"IN"=>1,	# Internet
+	"CH"=>1,	# Chaos
+);
+
+
+# Main Loop - input lines from stdin, handle them.
+
+while (<>) {
+
+	chop;
+	next if /^\s*;/;		# skip blank & comment lines
+	next if /^\s*$/;
+
+	@f = split;
+
+	if ($f[0] eq '$ORIGIN') {		# literally the string '$ORIGIN'
+		$origin = $f[1];
+		$origin .= "." if $origin !~ /\.$/;	# append "." if missing
+		$origin = "" if $origin eq ".";		# use "" for root domain
+		next;
+	}
+	elsif ($f[0] !~ /\.$/) {	# record name is missing its ending period!
+		if ($f[0] eq "@") {
+			$f[0] = "$origin";	# expand "@" into domain name
+		} else {
+			$f[0] .= ".$origin";	# append domain name onto name
+		}
+	}
+
+	if (/^\s/) {				# empty LHS, use curr. domain name
+		unshift @f, $domain;
+	}
+	else {
+		$domain = $f[0];		# memorize this LHS for future lines
+	}
+
+	splice(@f,2,1)  if $classes{uc($f[2])};	# Get rid of Class if exists (DiG 8 & newer)
+
+
+# By this point the records have been standardized like this --
+#	$f[0] = LHS   (canonical domain name)
+#	$f[1] = TTL
+#	$f[2] = RRTYPE
+#	$f[3]..$f[$#f] = data (1 or more fields)
+
+	$rr = uc($f[2]);
+
+	if ($rhs_is_domain{$rr} && $f[$#f] !~ /\.$/) {		# empty RHS domain name
+		if ($f[$#f] eq "@") {
+			$f[$#f] = "$origin";			# "@" is just the origin
+		} else {
+			$f[$#f] .= ".$origin";			# otherwise append origin
+		}
+	}
+
+# By this point any domain names in the data fields have been canonicalized.
+# (we expanded Dig 2.x's "@" symbols and unqualified names to fqdn's)
+
+#
+# If we see a RR continuation marker (left-paren)
+# then read and parse the rest of the continuation lines.
+# The line looked like this:
+# @                       4H IN SOA       pallas hostmaster.pallas (
+#
+	if (/\(\s*$/) {
+		undef($f[$#f]);			# remove the "(" thing
+		while (<STDIN>) {
+			chop;
+
+# Remove comments from the line.  DiG 2.1 puts parentheses in the comments!
+
+			s/;.*//;
+
+# Next, handle all other data lines in the continuation,
+# including the right-paren line.  Expect no comments.
+# Those lines look like this:
+#                                         712120828       ; serial
+#                                         1H              ; refresh
+#                                         5M              ; retry
+#                                         1W              ; expiry
+#                                         4H )            ; minimum
+
+#			if (/\s*([^\);\s]+)\s*\)?\s*;?.*/) {
+#} ugh
+			if (/\s*([^\)\s]+)\s*\)?.*/) {
+				$f[$#f+1] = $1;
+			}
+			last if /\)/;		# end continuation line
+		}
+	}
+
+	if ($rr eq "SOA") {
+		if ($f[3] !~ /\.$/) {	# record name is missing its ending period!
+			if ($f[3] eq "@") {
+				$f[3] = "$origin";	# expand "@" into domain name
+			} else {
+				$f[3] .= ".$origin";	# append domain name onto name
+			}
+		}
+		if ($f[4] !~ /\.$/) {	# record name is missing its ending period!
+			if ($f[4] eq "@") {
+				$f[4] = "$origin";	# expand "@" into domain name
+			} else {
+				$f[4] .= ".$origin";	# append domain name onto name
+			}
+		}
+		if ($f[5] eq "(") {
+			splice(@f,5,1);		# remove grouping symbols (BIND 9)
+		}
+		if ($f[$#f] eq ")") {
+			splice(@f,$#f,1);	# remove grouping symbols (BIND 9)
+		}
+	}
+
+# Print resulting data line
+
+	$nspaces = 32 - length($f[0]);
+	$nspaces = 1 if $nspaces < 1;
+	print $f[0], " " x $nspaces;
+
+	#$str = "$f[1] $f[2]";
+	$str = "$f[2]";			# don't bother printing TTL
+	$nspaces = 8 - length($str);
+	$nspaces = 1 if $nspaces < 1;
+	print "$str", " " x $nspaces;
+
+	for ($i=3; $i<=$#f; $i++) {
+		print " ",$f[$i];
+	}
+	print "\n";
+
+}
+
+exit 0;
