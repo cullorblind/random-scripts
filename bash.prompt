@@ -1,0 +1,88 @@
+#
+#Get Hostname
+SYSTEM=$(/bin/hostname | sed -e "s/[\.].*//") # strip domain if you like
+#SYSTEM=$(/bin/hostname) # or keep it if you like
+#
+
+#Get Username
+#   "id -un" and "pwd" include a trailing newline
+usernam=$(/bin/id -un)
+
+# use prompt_command to calculate width (different directories / term window size changes / etc)
+function prompt_command {
+
+	TERMWIDTH=${COLUMNS}
+	let usersize=$(echo -n $usernam | wc -c | tr -d " ")
+	newPWD="${PWD}"
+	let pwdsize=$(echo -n ${newPWD} | wc -c | tr -d " ")
+	let promptsize=$(echo -n "--(${usernam}@${SYSTEM})------(${PWD})--" | wc -c | tr -d " ")
+	let fillsize=${TERMWIDTH}-${promptsize}
+	fill=""
+
+	while [ "$fillsize" -gt "0" ]
+	do
+		fill="${fill} "
+		let fillsize=${fillsize}-1
+	done
+
+	if [ "$fillsize" -lt "0" ]
+	then
+		let cut=3-${fillsize}
+		newPWD="...$(echo -n ${PWD} | sed -e "s/\(^.\{$cut\}\)\(.*\)/\2/")"
+	fi
+
+}
+
+
+function termwide {
+
+	local GRAY="\[\033[1;30m\]"
+	local LIGHT_GRAY="\[\033[0;37m\]"
+	local WHITE="\[\033[1;37m\]"
+	local NO_COLOUR="\[\033[0m\]"
+
+	local USERCOLOR="\[\033[0;32m\]"
+	local USERCHAR="$"
+	local YELLOW="\[\033[1;33m\]"
+	local CYAN="\[\033[1;36m\]"
+	local GREEN="\[\033[1;32m\]"
+	local BRIGHT="\[\033[1m\]"
+
+	if [ "${UID}" = "0" ];
+	then
+		# I am root
+		USERCOLOR="\[\033[1;31m\]"
+		USERCHAR="#"
+	fi
+
+	case ${TERM} in
+	xterm*)
+		TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+		;;
+	*)
+		TITLEBAR=""
+		;;
+	esac
+
+
+PS1="${TITLEBAR}\
+${CYAN}-=${USERCOLOR}(\
+${WHITE}.${USERCOLOR}\${usernam}${GREEN}@${WHITE}\${SYSTEM}${WHITE}.\
+${USERCOLOR})${CYAN}=-\${fill}-=${USERCOLOR}(\
+${LIGHT_GRAY}\${newPWD}\
+${USERCOLOR})${CYAN}=-\
+\n\
+${CYAN}-=${USERCOLOR}(\
+${WHITE}.${CYAN}\$(date +%H\:%M)\
+${WHITE}.${CYAN}\$(date +%D)\
+${WHITE}.\
+${USERCOLOR})${CYAN}=-\
+${USERCOLOR}${USERCHAR}\
+${NO_COLOUR}${WHITE}${BRIGHT} "
+
+PS2="${USERCOLOR} -${CYAN} -${CYAN} -${NO_COLOUR} ${WHITE} ${BRIGHT} "
+
+}
+
+PROMPT_COMMAND=prompt_command
+termwide
