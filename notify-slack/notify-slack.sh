@@ -8,14 +8,14 @@
 #   - limit output of execute output to 4k. (saw this limit in slacks documentation somewhere)
 #   - prevent spamming - repeating the same message
 #   - rate limits = https://api.slack.com/docs/rate-limits
-# * Allow sending messaged to @users instead of #channels
+# * Allow sending messaged to @users instead of #channels (Partial, but still needs work)
 
 #--- ENV ---# configure these as defaults if not called from command line
 function f_env
 {
 	# Defaults if not defined at command line.
 	WEBHOOKURL="${WEBHOOKURL:-<WEBHOOK URL GOES HERE>}"
-	CHANNEL="${CHANNEL:-alerts}"
+	DESTINATION="${DESTINATION:-#alerts}" # eg. #channel eg2. @person"
 	ICON_EMOJI="${ICON_EMOJI:-:alien:}"
 	BOTNAME="${BOTNAME:-CLIBOT}"
 
@@ -36,10 +36,11 @@ cat <<USAGE
  Usage    : notify_slack.sh [-u webhookurl] [-c channel] [-e emoji] [-b botname] [-x "/path/to/executable"] <-m "message">
 
  Arg Desc : -u (webhookurl) eg. "https://hooks.slack.com/services/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX}"
-            -c (channel)   default:  alerts     (channel name with preceding # excluded)
+            -c (channel)   default:  #alerts     (channel name with preceding # included)
             -e (emoji)     default:  :alien:
             -b (botname)   default:  CLIBOT
-            -m (message)   "make sure it's in quotes"
+            -m "(message)" "make sure it's in quotes"
+            -n             NOTIFY @channel
             -x (execute)   "/path/to/executable -and options" - capture output of command and attach
 
                 *NOTE* Output of executed command should be 80 columns wide or it will be word wrapped.
@@ -56,20 +57,15 @@ USAGE
 
 
 #--- GET OPTIONS ---#
-while getopts ":u:c:e:b:x:m:h" arg; do
+while getopts ":u:c:e:b:x:nm:h" arg; do
 	case $arg in
 		u) WEBHOOKURL=${OPTARG} ;;
-		c) CHANNEL=${OPTARG} ;;
+		c) DESTINATION=${OPTARG} ;;
 		e) ICON_EMOJI=${OPTARG} ;;
 		b) BOTNAME=${OPTARG} ;;
 		x) EXECUTE=${OPTARG} ;;
+		n) NOTIFYCHAN='<!channel>' ;;
 		m) MSG=${OPTARG}
-			#--- Strip/Replace characters that cause problems --#
-			MSG=$(echo ${MSG} | tr -d '\n')
-			MSG=$(echo ${MSG} | sed 's/"//g')
-			MSG=$(echo ${MSG} | sed 's/&/\&amp;/g')
-			MSG=$(echo ${MSG} | sed 's/</\&lt;/g')
-			MSG=$(echo ${MSG} | sed 's/>/\&gt;/g')
 		;;
 		h) f_usage; exit 0 ;;
 	esac
@@ -93,11 +89,11 @@ if [[ ${MESSAGE} ]]; then
 		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/</\&lt;/g')
 		EXECOUTPUT=$(echo ${EXECOUTPUT} | sed 's/>/\&gt;/g')
 
-		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" }, { \"color\": \"#4636ff\", \"text\": \"\`\`\`# ${EXECUTE}${EXECOUTPUT}\`\`\`\", \"mrkdwn_in\": [ \"text\" ] } ] }" ${WEBHOOKURL}
+		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"${DESTINATION}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } ${NOTIFYCHAN}\" }, { \"color\": \"#4636ff\", \"text\": \"\`\`\`# ${EXECUTE}${EXECOUTPUT}\`\`\`\", \"mrkdwn_in\": [ \"text\" ] } ] }" ${WEBHOOKURL}
 
 	else
 
-		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"#${CHANNEL}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } <!channel>\" } ] }" ${WEBHOOKURL}
+		/bin/curl -X POST --data-urlencode "payload={\"channel\": \"${DESTINATION}\", \"icon_emoji\": \"$ICON_EMOJI\", \"username\": \"${BOTNAME}\", \"attachments\": [ { \"color\": \"#f6364f\", \"text\": \"${MESSAGE}\", \"footer\": \":prwn: ${ID}@${HOSTNAME}:${PARENT_COMMAND#* } ${NOTIFYCHAN}\" } ] }" ${WEBHOOKURL}
 
 	fi
 
