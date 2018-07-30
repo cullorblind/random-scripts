@@ -1,0 +1,28 @@
+# ▶❯❱═─➔➜➠➢➤➥➦➧➨➽➾⟜⟫⤇⥈⥰⦁⦂⦊⦔⦕⦿⩥⪢⪧⫸⬤⬬⮞⯈⯌⯍〉》〕ꔪꚚꣲ
+TTY=$(/usr/bin/tty)
+
+if [[ $TTY =~ tty[0-9] && $(id -u) = 0 ]];then
+	LN="-"
+	PR="#"
+	CO="31"
+	PRCO="31"
+elif [[ $TTY =~ tty[0-9] && $(id -u) != 0 ]];then
+	LN="-"
+	PR=">"
+	CO="36"
+	PRCO="32"
+elif [[ $(id -u) = 0 ]];then
+	LN="─"
+	PR="❱"
+	CO="91"
+	PRCO="91"
+elif [[ $(id -u) != 0 ]];then
+	LN="─"
+	PR="❱"
+	CO="96"
+	PRCO="92"
+fi
+
+export PS1="\[\e[${CO}m\]\u\[\e[0m\]@\[\e[36m\]\H\[\e[0m\] \[\e[47;30m\][\w]\[\e[0m\] \[\e[${PRCO}m\]${PR}\[\e[0m\] "
+export PS2=" \[\e[47;30m\][\w]\[\e[0m\] \[\e[${PRCO}m\]${PR}\[\e[0m\] "
+PROMPT_COMMAND='if [[ -z $i ]] ; then i=$(tput cols) ; echo -ne "\e[${CO}m" ; while (( i-- > 9 )) ; do echo -n "$LN" ; done ; echo -n " " ; echo -ne "\e[0m" ; date +%R:%S ; unset i ; fi'
