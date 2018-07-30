@@ -24,3 +24,7 @@ fi
 
 export PS1='\[\e[${CO}m\]\[$(printf "%*s" $(($(tput cols)-9)) "" | sed "s/ /${LN}/g") \[\e[0m\]\t\r\]\n\[\e[${CO}m\]\u\[\e[0m\]@\[\e[36m\]\H\[\e[0m\] \[\e[47;30m\][\w]\[\e[0m\] \[\e[${PRCO}m\]${PR}\[\e[0m\] '
 export PS2=" \[\e[47;30m\][\w]\[\e[0m\] \[\e[${PRCO}m\]${PR}\[\e[0m\] "
+
+#centos gnu-screen tabs get renamed unless PROMPT_COMMAND is defined to something.
+#Blame /etc/bashrc for this annoying behaviour.
+export PROMPT_COMMAND=true
